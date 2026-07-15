@@ -5,7 +5,7 @@ Pi extension package for Cocraft authentication.
 ## Installation
 
 ```bash
-pi install git:https://github.com/<username>/cocraft-pi-auth
+pi install git:https://github.com/tea0112/cocraft-pi-auth
 ```
 
 ## Setup
