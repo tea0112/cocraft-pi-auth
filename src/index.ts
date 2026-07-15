@@ -19,11 +19,17 @@ function dbg(...args: unknown[]): void {
 
 const DEFAULT_CONTEXT_WINDOW = 1000000;
 const DEFAULT_MAX_TOKENS = 65536;
+const DEFAULT_REASONING = false;
 
 function modelDefaults() {
+  // NOTE: reasoning requires the server's LiteLLM proxy to have
+  // `litellm.drop_params: true` or `allowed_openai_params: ['reasoning_effort']`.
+  // Without that, enabling PI_COCRAFT_REASONING=1 will cause API errors.
+  const reasoning = process.env.PI_COCRAFT_REASONING === "1" ? true : DEFAULT_REASONING;
   return {
     contextWindow: parseInt(process.env.PI_COCRAFT_CONTEXT_WINDOW ?? String(DEFAULT_CONTEXT_WINDOW), 10),
     maxTokens: parseInt(process.env.PI_COCRAFT_MAX_TOKENS ?? String(DEFAULT_MAX_TOKENS), 10),
+    reasoning,
   };
 }
 
@@ -211,15 +217,15 @@ async function reRegisterWithDiscoveredModels(accessToken: string, organizationA
     }
 
     // Build Model objects from discovered names
-    const { contextWindow, maxTokens } = modelDefaults();
+    const { contextWindow, maxTokens, reasoning } = modelDefaults();
     const discoveredModels = modelNames.map((name) => ({
       id: name,
       name: name,
-      reasoning: false,
       input: ["text"] as ("text" | "image")[],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow,
       maxTokens,
+      reasoning,
     }));
 
     const baseUrl = storedApiBase ?? process.env.PI_COCRAFT_API_BASE ?? "";
@@ -362,7 +368,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
       {
         id: "minimax-m2.7",
         name: "MiniMax M2.7",
-        reasoning: false,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         ...modelDefaults(),

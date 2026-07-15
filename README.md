@@ -56,6 +56,7 @@ pi -m cocraft/minimax-m2.7 "Hello, how are you?"
 | `PI_COCRAFT_PROXY` | No | unset | If set, route requests through the system proxy. If unset, bypass proxy for direct connection. |
 | `PI_COCRAFT_CONTEXT_WINDOW` | No | `1000000` | Context window size in tokens. |
 | `PI_COCRAFT_MAX_TOKENS` | No | `65536` | Maximum output tokens. |
+| `PI_COCRAFT_REASONING` | No | `false` | Set to `1` to enable extended thinking. Requires server-side `litellm.drop_params: true`. |
 | `PI_COCRAFT_DEBUG` | No | unset | Set to `1` for verbose debug logging to stderr. |
 
 ### Proxy Behavior
@@ -79,6 +80,14 @@ Example with custom context window:
 
 ```bash
 PI_COCRAFT_CONTEXT_WINDOW=500000 PI_COCRAFT_MAX_TOKENS=32768 PI_COCRAFT_API_BASE=http://10.208.217.112 pi --provider cocraft --model minimax-m2.7 --print "hi"
+```
+
+**Reasoning:** Requires the server-side LiteLLM proxy to have `drop_params: true`. If `reasoning_effort` errors appear, the server hasn't enabled this yet.
+
+Example with reasoning enabled (server must support it):
+
+```bash
+PI_COCRAFT_REASONING=1 PI_COCRAFT_API_BASE=http://10.208.217.112 pi --provider cocraft --model minimax-m2.7 --print "hi"
 ```
 
 ### Token Auto-Rotation
