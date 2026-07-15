@@ -9,6 +9,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Api, Model, OAuthLoginCallbacks, OAuthCredentials } from "@earendil-works/pi-ai";
 import { refreshToken, fetchModelConfig, extractModelFromConfig, buildChatUrl } from "./api.js";
 import { createCocraftFetch } from "./fetch-agent.js";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Module-level credential storage for 401 auto-refresh
@@ -22,6 +24,39 @@ interface StoredCredentials {
 }
 
 let storedCredentials: StoredCredentials | null = null;
+let storedApiBase: string | null = null;
+
+// ---------------------------------------------------------------------------
+// Credential persistence
+// ---------------------------------------------------------------------------
+
+function getAuthPath(): string {
+  return join(process.env.HOME ?? "/root", ".pi/agent/auth.json");
+}
+
+/**
+ * Persist the updated cocraft credentials to pi's auth.json.
+ * Reads the file, updates only the `cocraft` key, writes back atomically.
+ */
+function persistCredentials(next: StoredCredentials): void {
+  const authPath = getAuthPath();
+  try {
+    const authData = JSON.parse(readFileSync(authPath, "utf-8"));
+    authData.cocraft = {
+      access: next.access,
+      refresh: next.refresh,
+      expires: next.expires,
+      ...(next.organizationAlias !== undefined && {
+        organizationAlias: next.organizationAlias,
+      }),
+    };
+    writeFileSync(authPath, JSON.stringify(authData, null, 2));
+  } catch {
+    // Auth file may not exist yet on first login — persistCredentials is
+    // called for 401-refreshed tokens which should already have been stored
+    // by pi's login flow, so failures here are non-fatal.
+  }
+}
 
 // ---------------------------------------------------------------------------
 // OAuth callback functions
@@ -43,6 +78,10 @@ async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> 
   };
 
   storedCredentials = credentials;
+  persistCredentials(credentials);
+
+  await reRegisterWithDiscoveredModels(refreshResult.accessToken, refreshResult.organizationAlias);
+
   return credentials as OAuthCredentials;
 }
 
@@ -58,6 +97,7 @@ async function refreshTokenFn(credentials: OAuthCredentials): Promise<OAuthCrede
   };
 
   storedCredentials = updated;
+  persistCredentials(updated);
   return updated as OAuthCredentials;
 }
 
@@ -81,6 +121,65 @@ function modifyModels(models: unknown[], credentials: OAuthCredentials): Model<A
     (model as { baseUrl?: string }).baseUrl = baseUrl;
   }
   return modelArray;
+}
+
+// ---------------------------------------------------------------------------
+// Module-level pi reference for dynamic re-registration after login
+// ---------------------------------------------------------------------------
+
+let piRef: ExtensionAPI | null = null;
+
+/**
+ * Re-register the cocraft provider with discovered models after login.
+ * Called from login() once we have an access token and org alias.
+ */
+async function reRegisterWithDiscoveredModels(accessToken: string, organizationAlias: string): Promise<void> {
+  if (!piRef) return;
+
+  try {
+    const config = await fetchModelConfig(accessToken, organizationAlias);
+
+    // Parse model names from YAML config value
+    const modelNames: string[] = [];
+    for (const match of config.value.matchAll(/^name:\s*(\S+)/gm)) {
+      modelNames.push(match[1]);
+    }
+
+    if (modelNames.length === 0) {
+      return;
+    }
+
+    // Build Model objects from discovered names
+    const discoveredModels = modelNames.map((name) => ({
+      id: name,
+      name: name,
+      reasoning: false,
+      input: ["text"] as ("text" | "image")[],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 1000000,
+      maxTokens: 65536,
+    }));
+
+    const baseUrl = storedApiBase ?? process.env.PI_COCRAFT_API_BASE ?? "";
+
+    piRef.registerProvider("cocraft", {
+      name: "Cocraft",
+      baseUrl,
+      api: "openai-completions",
+      oauth: {
+        name: "Cocraft (OAuth)",
+        login,
+        refreshToken: refreshTokenFn,
+        getApiKey,
+        modifyModels,
+      },
+      models: discoveredModels,
+      // @ts-expect-error — fetch is a valid runtime option not yet in ProviderConfig type
+      fetch: customFetch,
+    });
+  } catch {
+    // Non-fatal: login succeeded, model discovery failed — keep hardcoded models
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -122,12 +221,14 @@ async function customFetch(input: RequestInfo | URL, init?: RequestInit): Promis
   if (response.status === 401 && storedCredentials?.refresh) {
     try {
       const result = await refreshToken(storedCredentials.refresh);
-      storedCredentials = {
+      const next: StoredCredentials = {
         access: result.accessToken,
         refresh: result.refreshToken,
         expires: Date.now() + result.expiresInMs,
         organizationAlias: result.organizationAlias ?? storedCredentials.organizationAlias,
       };
+      storedCredentials = next;
+      persistCredentials(next);
 
       const retryHeaders = new Headers(init?.headers);
       retryHeaders.set("Authorization", `Bearer ${storedCredentials.access}`);
@@ -155,6 +256,9 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   if (!apiBase) {
     throw new Error("PI_COCRAFT_API_BASE environment variable is not set");
   }
+
+  piRef = pi;
+  storedApiBase = apiBase;
 
   pi.registerProvider("cocraft", {
     name: "Cocraft",
