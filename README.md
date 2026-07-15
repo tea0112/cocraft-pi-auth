@@ -8,15 +8,17 @@ Pi extension package for Cocraft authentication.
 pi install git:https://github.com/tea0112/cocraft-pi-auth
 ```
 
+Then restart pi.
+
 ## Setup
 
-1. Set the `PI_COCRAFT_API_BASE` environment variable to your Cocraft API base URL:
+Set the `PI_COCRAFT_API_BASE` environment variable to your Cocraft API base URL:
 
 ```bash
-export PI_COCRAFT_API_BASE=http://YOUR_INTERNAL_API_HOST:PORT
+export PI_COCRAFT_API_BASE=http://YOUR_INTERNAL_API_HOST
 ```
 
-2. Verify the provider is installed:
+Verify the provider is installed:
 
 ```bash
 pi --list-models | grep -i cocraft
@@ -30,55 +32,76 @@ Authenticate with your refresh token:
 /login cocraft
 ```
 
-Enter your Cocraft refresh token when prompted. Credentials are stored in `~/.pi/agent/auth.json` (managed by Pi, not this package).
+Enter your Cocraft refresh token when prompted. Credentials are stored in `~/.pi/agent/auth.json`.
 
 ## Usage
 
-Chat with the model using the `cocraft/minimax-m2.7` model ID:
+Chat with the model:
+
+```bash
+pi --provider cocraft --model minimax-m2.7 --print "Hello, how are you?"
+```
+
+On newer pi versions:
 
 ```bash
 pi -m cocraft/minimax-m2.7 "Hello, how are you?"
 ```
 
-Or set it as your default model in settings.
-
 ## Environment Variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `PI_COCRAFT_API_BASE` | Yes | Your Cocraft API base URL (e.g. `http://YOUR_INTERNAL_API_HOST:PORT`) |
-| `PI_COCRAFT_PROXY` | No | If set, route requests through the system proxy (`$http_proxy`/`$https_proxy`). If unset, bypass proxy for direct connection. |
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `PI_COCRAFT_API_BASE` | Yes | — | Your Cocraft API base URL (e.g. `http://10.208.217.112`) |
+| `PI_COCRAFT_PROXY` | No | unset | If set, route requests through the system proxy. If unset, bypass proxy for direct connection. |
+| `PI_COCRAFT_CONTEXT_WINDOW` | No | `1000000` | Context window size in tokens. |
+| `PI_COCRAFT_MAX_TOKENS` | No | `65536` | Maximum output tokens. |
+| `PI_COCRAFT_DEBUG` | No | unset | Set to `1` for verbose debug logging to stderr. |
 
 ### Proxy Behavior
 
-- **`PI_COCRAFT_PROXY` unset (default)**: Direct connection to the API. HTTP proxy is bypassed via `--noproxy "*"` flag. Use this when `PI_COCRAFT_API_BASE` points to an internal IP.
-- **`PI_COCRAFT_PROXY=1`**: Route requests through the system proxy. Both `http://` and `https://` URLs use `$http_proxy`/`$https_proxy` respectively.
+- **`PI_COCRAFT_PROXY` unset (default)**: Direct connection to the API, bypassing the system proxy. Use this when `PI_COCRAFT_API_BASE` points to an internal IP.
+- **`PI_COCRAFT_PROXY=1`**: Route requests through the system proxy (`$http_proxy`/`$https_proxy`).
 
-Example (with proxy):
+Example with proxy:
+
 ```bash
-PI_COCRAFT_PROXY=1 PI_COCRAFT_API_BASE=http://YOUR_INTERNAL_API_HOST:PORT pi -m cocraft/minimax-m2.7 "hi"
+PI_COCRAFT_PROXY=1 PI_COCRAFT_API_BASE=http://YOUR_INTERNAL_API_HOST pi --provider cocraft --model minimax-m2.7 --print "hi"
 ```
 
-Example (without proxy, internal IP):
+Example without proxy (internal IP):
+
 ```bash
-PI_COCRAFT_API_BASE=http://YOUR_INTERNAL_API_HOST:PORT pi -m cocraft/minimax-m2.7 "hi"
+PI_COCRAFT_API_BASE=http://10.208.217.112 pi --provider cocraft --model minimax-m2.7 --print "hi"
 ```
 
-### Token Storage
+Example with custom context window:
 
-OAuth credentials are stored in `~/.pi/agent/auth.json`, managed by Pi. This package does not write or read any custom token files.
+```bash
+PI_COCRAFT_CONTEXT_WINDOW=500000 PI_COCRAFT_MAX_TOKENS=32768 PI_COCRAFT_API_BASE=http://10.208.217.112 pi --provider cocraft --model minimax-m2.7 --print "hi"
+```
+
+### Token Auto-Rotation
+
+The refresh token is rotated on every API call proactively. Credentials are persisted to `~/.pi/agent/auth.json` automatically.
+
+### Debug Logging
+
+```bash
+PI_COCRAFT_DEBUG=1 pi --provider cocraft --model minimax-m2.7 --print "hi"
+```
 
 ## Troubleshooting
 
 **Provider not appearing in `pi --list-models`**
 - Ensure `PI_COCRAFT_API_BASE` is set before running `pi`
-- Verify `pi --version` is >= 1.0
-- Try `pi reload` to hot-reload extensions
+- Verify the extension is installed: `pi list`
+- Try removing and reinstalling the extension
 
 **Authentication fails**
 - Confirm your refresh token is valid
-- Ensure `PI_COCRAFT_API_BASE` is correct and reachable from your network
+- Ensure `PI_COCRAFT_API_BASE` is correct and reachable
 
-**Proxy errors**
-- If behind a proxy: set `PI_COCRAFT_PROXY=1`
-- If connecting to an internal IP: leave `PI_COCRAFT_PROXY` unset
+**Connection error on internal IP**
+- The proxy env vars may be set globally. Unset `PI_COCRAFT_PROXY` or set it to empty.
+- On Windows with Git Bash/ZSH: `PI_COCRAFT_PROXY="" pi ...`
