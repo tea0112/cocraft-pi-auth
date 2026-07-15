@@ -13,7 +13,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
-// Module-level credential storage for 401 auto-refresh
+// ---------------------------------------------------------------------------
+// Module-level credential storage for token management
 // ---------------------------------------------------------------------------
 
 interface StoredCredentials {
@@ -25,6 +26,43 @@ interface StoredCredentials {
 
 let storedCredentials: StoredCredentials | null = null;
 let storedApiBase: string | null = null;
+
+// ---------------------------------------------------------------------------
+// Proactive refresh mutex — serialises refreshToken() calls across concurrent
+// requests so we rotate the refresh token once, not once per concurrent request.
+// ---------------------------------------------------------------------------
+
+let refreshInFlight: Promise<StoredCredentials> | null = null;
+
+/**
+ * Get a fresh access token, rotating the refresh token every time.
+ * Uses a serialisation lock so concurrent callers share the same in-flight refresh.
+ */
+async function getFreshAccessToken(): Promise<string> {
+  if (!storedCredentials?.refresh) {
+    throw new Error("No refresh token available");
+  }
+
+  const kickoff = refreshToken(storedCredentials.refresh).then((result) => {
+    const next: StoredCredentials = {
+      access: result.accessToken,
+      refresh: result.refreshToken,
+      expires: Date.now() + result.expiresInMs,
+      organizationAlias: result.organizationAlias ?? storedCredentials!.organizationAlias,
+    };
+    storedCredentials = next;
+    persistCredentials(next);
+    return next;
+  });
+
+  if (!refreshInFlight) {
+    refreshInFlight = kickoff;
+  }
+
+  const result = await refreshInFlight;
+  refreshInFlight = null;
+  return result.access;
+}
 
 // ---------------------------------------------------------------------------
 // Credential persistence
@@ -190,8 +228,17 @@ const cocraftFetch = createCocraftFetch();
 
 async function customFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
-  const accessToken = storedCredentials?.access ?? "";
-  headers.set("Authorization", `Bearer ${accessToken}`);
+
+  let freshAccessToken: string | undefined;
+  try {
+    freshAccessToken = await getFreshAccessToken();
+  } catch {
+    // No credentials yet — let the request proceed without auth
+  }
+
+  if (freshAccessToken) {
+    headers.set("Authorization", `Bearer ${freshAccessToken}`);
+  }
 
   let body = init?.body;
   if (body) {
@@ -202,11 +249,10 @@ async function customFetch(input: RequestInfo | URL, init?: RequestInit): Promis
         parsed.model = parsed.model.split("/").pop()!;
       }
       body = JSON.stringify(parsed);
-      // Body length changed — drop Content-Length so it recalculates
       headers.delete("Content-Length");
       headers.delete("content-length");
     } catch {
-      // Non-JSON body — send as-is
+      // Non-JSON body — leave unchanged
     }
   }
 
@@ -217,7 +263,7 @@ async function customFetch(input: RequestInfo | URL, init?: RequestInit): Promis
     signal: init?.signal,
   });
 
-  // Auto-refresh on 401
+  // 401 fallback — proactive refresh missed (e.g., no stored credentials on startup)
   if (response.status === 401 && storedCredentials?.refresh) {
     try {
       const result = await refreshToken(storedCredentials.refresh);
@@ -230,8 +276,8 @@ async function customFetch(input: RequestInfo | URL, init?: RequestInit): Promis
       storedCredentials = next;
       persistCredentials(next);
 
-      const retryHeaders = new Headers(init?.headers);
-      retryHeaders.set("Authorization", `Bearer ${storedCredentials.access}`);
+      const retryHeaders = new Headers(headers);
+      retryHeaders.set("Authorization", `Bearer ${next.access}`);
 
       response = await cocraftFetch(input, {
         method: init?.method ?? "POST",
