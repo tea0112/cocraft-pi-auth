@@ -1,0 +1,19 @@
+{
+  "name": "@cocraft/pi-auth",
+  "type": "module",
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.7",
+    "typebox": "^0.34.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}
