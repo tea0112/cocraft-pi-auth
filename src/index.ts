@@ -12,6 +12,11 @@ import { createCocraftFetch } from "./fetch-agent.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+const DEBUG = process.env.PI_COCRAFT_DEBUG === "1";
+function dbg(...args: unknown[]): void {
+  if (DEBUG) console.error("[cocraft]", ...args);
+}
+
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Module-level credential storage for token management
@@ -40,10 +45,12 @@ let refreshInFlight: Promise<StoredCredentials> | null = null;
  */
 async function getFreshAccessToken(): Promise<string> {
   if (!storedCredentials?.refresh) {
+    dbg("getFreshAccessToken: no refresh token available");
     throw new Error("No refresh token available");
   }
 
   const kickoff = refreshToken(storedCredentials.refresh).then((result) => {
+    dbg("getFreshAccessToken: got new tokens, rotating refresh");
     const next: StoredCredentials = {
       access: result.accessToken,
       refresh: result.refreshToken,
@@ -57,10 +64,14 @@ async function getFreshAccessToken(): Promise<string> {
 
   if (!refreshInFlight) {
     refreshInFlight = kickoff;
+    dbg("getFreshAccessToken: started new refresh");
+  } else {
+    dbg("getFreshAccessToken: reusing in-flight refresh");
   }
 
   const result = await refreshInFlight;
   refreshInFlight = null;
+  dbg("getFreshAccessToken: returning access token");
   return result.access;
 }
 
@@ -105,8 +116,10 @@ async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> 
   if (!token) {
     throw new Error("Refresh token was not provided");
   }
+  dbg("login: got token, calling refreshToken");
 
   const refreshResult = await refreshToken(token);
+  dbg("login: refreshResult", refreshResult);
 
   const credentials: StoredCredentials = {
     access: refreshResult.accessToken,
@@ -227,13 +240,17 @@ async function reRegisterWithDiscoveredModels(accessToken: string, organizationA
 const cocraftFetch = createCocraftFetch();
 
 async function customFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const urlStr = typeof input === "string" ? input : input instanceof URL ? input.href : (input as Request).url;
+  dbg("customFetch called:", init?.method ?? "POST", urlStr);
+
   const headers = new Headers(init?.headers);
 
   let freshAccessToken: string | undefined;
   try {
     freshAccessToken = await getFreshAccessToken();
-  } catch {
-    // No credentials yet — let the request proceed without auth
+    dbg("customFetch: got fresh access token");
+  } catch (e) {
+    dbg("customFetch: no credentials, proceeding without auth", e);
   }
 
   if (freshAccessToken) {
@@ -256,15 +273,18 @@ async function customFetch(input: RequestInfo | URL, init?: RequestInit): Promis
     }
   }
 
+  dbg("customFetch: calling cocraftFetch");
   let response = await cocraftFetch(input, {
     method: init?.method ?? "POST",
     headers,
     body,
     signal: init?.signal,
   });
+  dbg("customFetch: cocraftFetch returned status", response.status);
 
   // 401 fallback — proactive refresh missed (e.g., no stored credentials on startup)
   if (response.status === 401 && storedCredentials?.refresh) {
+    dbg("customFetch: got 401, falling back to refresh");
     try {
       const result = await refreshToken(storedCredentials.refresh);
       const next: StoredCredentials = {
@@ -285,8 +305,9 @@ async function customFetch(input: RequestInfo | URL, init?: RequestInit): Promis
         body,
         signal: init?.signal,
       });
-    } catch {
-      // Refresh failed — return the original 401
+      dbg("customFetch: retry after 401, status", response.status);
+    } catch (e) {
+      dbg("customFetch: 401 refresh fallback failed", e);
     }
   }
 
