@@ -319,6 +319,15 @@ async function customFetch(input: RequestInfo | URL, init?: RequestInit): Promis
 // ---------------------------------------------------------------------------
 
 export default async function (pi: ExtensionAPI): Promise<void> {
+  // Wipe proxy env vars so pi's internal HTTP client bypasses the system proxy
+  // for this extension's internal-IP API server. Must happen before any HTTP calls.
+  delete process.env.http_proxy;
+  delete process.env.https_proxy;
+  delete process.env.HTTP_PROXY;
+  delete process.env.HTTPS_PROXY;
+  delete process.env.ALL_PROXY;
+  delete process.env.all_proxy;
+
   const apiBase = process.env.PI_COCRAFT_API_BASE;
   if (!apiBase) {
     throw new Error("PI_COCRAFT_API_BASE environment variable is not set");
