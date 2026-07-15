@@ -285,4 +285,24 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     // @ts-expect-error — fetch is a valid runtime option not yet in ProviderConfig type
     fetch: customFetch,
   });
+
+  // On startup, check for existing credentials and fetch models if found
+  const authPath = join(process.env.HOME ?? "/root", ".pi/agent/auth.json");
+  try {
+    const authData = JSON.parse(readFileSync(authPath, "utf-8"));
+    const creds = authData.cocraft;
+    if (creds?.access && creds?.refresh && creds?.organizationAlias) {
+      storedCredentials = {
+        access: creds.access,
+        refresh: creds.refresh,
+        expires: creds.expires ?? 0,
+        organizationAlias: creds.organizationAlias,
+      };
+      reRegisterWithDiscoveredModels(creds.access, creds.organizationAlias).catch(() => {
+        // ignore — we already registered with fallback models
+      });
+    }
+  } catch {
+    // No existing credentials — startup with fallback models only
+  }
 }
