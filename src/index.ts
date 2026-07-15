@@ -17,6 +17,16 @@ function dbg(...args: unknown[]): void {
   if (DEBUG) console.error("[cocraft]", ...args);
 }
 
+const DEFAULT_CONTEXT_WINDOW = 1000000;
+const DEFAULT_MAX_TOKENS = 65536;
+
+function modelDefaults() {
+  return {
+    contextWindow: parseInt(process.env.PI_COCRAFT_CONTEXT_WINDOW ?? String(DEFAULT_CONTEXT_WINDOW), 10),
+    maxTokens: parseInt(process.env.PI_COCRAFT_MAX_TOKENS ?? String(DEFAULT_MAX_TOKENS), 10),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Module-level credential storage for token management
@@ -201,14 +211,15 @@ async function reRegisterWithDiscoveredModels(accessToken: string, organizationA
     }
 
     // Build Model objects from discovered names
+    const { contextWindow, maxTokens } = modelDefaults();
     const discoveredModels = modelNames.map((name) => ({
       id: name,
       name: name,
       reasoning: false,
       input: ["text"] as ("text" | "image")[],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 1000000,
-      maxTokens: 65536,
+      contextWindow,
+      maxTokens,
     }));
 
     const baseUrl = storedApiBase ?? process.env.PI_COCRAFT_API_BASE ?? "";
@@ -354,8 +365,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
         reasoning: false,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 1000000,
-        maxTokens: 65536,
+        ...modelDefaults(),
       },
     ],
     // @ts-expect-error — fetch is a valid runtime option not yet in ProviderConfig type
