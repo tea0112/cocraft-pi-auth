@@ -56,6 +56,7 @@ pi -m cocraft/minimax-m2.7 "Hello, how are you?"
 | `PI_COCRAFT_PROXY` | No | unset | If set, route requests through the system proxy. If unset, bypass proxy for direct connection. |
 | `PI_COCRAFT_CONTEXT_WINDOW` | No | `1000000` | Context window size in tokens. |
 | `PI_COCRAFT_MAX_TOKENS` | No | `65536` | Maximum output tokens. |
+| `PI_COCRAFT_REASONING` | No | `false` | Set to `1` to enable extended thinking/reasoning. |
 | `PI_COCRAFT_DEBUG` | No | unset | Set to `1` for verbose debug logging to stderr. |
 
 ### Proxy Behavior
@@ -75,10 +76,10 @@ Example without proxy (internal IP):
 PI_COCRAFT_API_BASE=http://10.208.217.112 pi --provider cocraft --model minimax-m2.7 --print "hi"
 ```
 
-Example with custom context window:
+Example with custom context window and thinking enabled:
 
 ```bash
-PI_COCRAFT_CONTEXT_WINDOW=500000 PI_COCRAFT_MAX_TOKENS=32768 PI_COCRAFT_API_BASE=http://10.208.217.112 pi --provider cocraft --model minimax-m2.7 --print "hi"
+PI_COCRAFT_CONTEXT_WINDOW=500000 PI_COCRAFT_MAX_TOKENS=32768 PI_COCRAFT_REASONING=1 PI_COCRAFT_API_BASE=http://10.208.217.112 pi --provider cocraft --model minimax-m2.7 --print "hi"
 ```
 
 ### Token Auto-Rotation
