@@ -60,6 +60,22 @@ let refreshInFlight: Promise<StoredCredentials> | null = null;
  * Uses a serialisation lock so concurrent callers share the same in-flight refresh.
  */
 async function getFreshAccessToken(): Promise<string> {
+  if (storedCredentials?.access) {
+    let expires = storedCredentials.expires;
+    if (!expires || expires === 0) {
+      try {
+        const payload = JSON.parse(Buffer.from(storedCredentials.access.split('.')[1], 'base64').toString());
+        if (payload.exp) expires = payload.exp * 1000;
+      } catch {
+        // ignore invalid jwt
+      }
+    }
+    if (expires > Date.now() + 60000) {
+      dbg("getFreshAccessToken: using valid stored access token");
+      return storedCredentials.access;
+    }
+  }
+
   if (!storedCredentials?.refresh) {
     dbg("getFreshAccessToken: no refresh token available");
     throw new Error("No refresh token available");
