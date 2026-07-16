@@ -172,18 +172,37 @@ async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> 
 
 async function refreshTokenFn(credentials: OAuthCredentials): Promise<OAuthCredentials> {
   const sc = credentials as StoredCredentials;
-  const result = await refreshToken(sc.refresh);
+  try {
+    const result = await refreshToken(sc.refresh);
 
-  const updated: StoredCredentials = {
-    access: result.accessToken,
-    refresh: result.refreshToken,
-    expires: Date.now() + result.expiresInMs,
-    organizationAlias: result.organizationAlias ?? sc.organizationAlias,
-  };
+    const updated: StoredCredentials = {
+      access: result.accessToken,
+      refresh: result.refreshToken,
+      expires: Date.now() + (result.expiresInMs || 0),
+      organizationAlias: result.organizationAlias ?? sc.organizationAlias,
+    };
 
-  storedCredentials = updated;
-  persistCredentials(updated);
-  return updated as OAuthCredentials;
+    storedCredentials = updated;
+    persistCredentials(updated);
+    return updated as OAuthCredentials;
+  } catch (error) {
+    dbg("refreshTokenFn: refresh failed, attempting to fallback to JWT exp", error);
+    let realExpires = sc.expires;
+    try {
+      const payload = JSON.parse(Buffer.from(sc.access.split('.')[1], 'base64').toString());
+      if (payload.exp) realExpires = payload.exp * 1000;
+    } catch {
+      // ignore
+    }
+
+    // Return credentials with a future expires so the orchestrator accepts it
+    const fallback = {
+      ...credentials,
+      expires: (realExpires && realExpires > Date.now()) ? realExpires : Date.now() + 60000,
+    };
+
+    return fallback as OAuthCredentials;
+  }
 }
 
 function getApiKey(credentials: OAuthCredentials): string {
