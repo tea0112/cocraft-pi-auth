@@ -124,6 +124,8 @@ function persistCredentials(next: StoredCredentials): void {
   try {
     const authData = JSON.parse(readFileSync(authPath, "utf-8"));
     authData.cocraft = {
+      ...authData.cocraft,
+      type: "oauth",
       access: next.access,
       refresh: next.refresh,
       expires: next.expires,
