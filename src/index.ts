@@ -128,7 +128,7 @@ function persistCredentials(next: StoredCredentials): void {
       type: "oauth",
       access: next.access,
       refresh: next.refresh,
-      expires: next.expires,
+      expires: next.expires || 0,
       ...(next.organizationAlias !== undefined && {
         organizationAlias: next.organizationAlias,
       }),
