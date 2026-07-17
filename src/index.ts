@@ -350,7 +350,12 @@ async function reRegisterWithDiscoveredModels(accessToken: string, organizationA
             mode: "self-managed",
             extensionDirs: [], // Subagent reads settings.json so it gets the extension naturally
             env: {
-              PI_COCRAFT_API_BASE: baseUrl
+              PI_COCRAFT_API_BASE: baseUrl,
+              PI_API_KEY_COCRAFT: storedCredentials?.access || "dummy_token_to_bypass_check",
+              PI_COCRAFT_ACCESS: storedCredentials?.access || "",
+              PI_COCRAFT_REFRESH: storedCredentials?.refresh || "",
+              PI_COCRAFT_ORG: storedCredentials?.organizationAlias || "",
+              PI_COCRAFT_EXPIRES: storedCredentials?.expires?.toString() || ""
             }
           };
         }
@@ -526,22 +531,34 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   });
 
   // On startup, check for existing credentials and fetch models if found
-  const authPath = join(process.env.HOME ?? "/root", ".pi/agent/auth.json");
-  try {
-    const authData = JSON.parse(readFileSync(authPath, "utf-8"));
-    const creds = authData.cocraft;
-    if (creds?.access && creds?.refresh && creds?.organizationAlias) {
-      storedCredentials = {
-        access: creds.access,
-        refresh: creds.refresh,
-        expires: creds.expires ?? 0,
-        organizationAlias: creds.organizationAlias,
-      };
-      reRegisterWithDiscoveredModels(creds.access, creds.organizationAlias).catch(() => {
-        // ignore — we already registered with fallback models
-      });
+  let creds: any = null;
+  if (process.env.PI_COCRAFT_ACCESS && process.env.PI_COCRAFT_REFRESH) {
+    creds = {
+      access: process.env.PI_COCRAFT_ACCESS,
+      refresh: process.env.PI_COCRAFT_REFRESH,
+      organizationAlias: process.env.PI_COCRAFT_ORG,
+      expires: parseInt(process.env.PI_COCRAFT_EXPIRES || "0", 10),
+    };
+  } else {
+    try {
+      const authPath = join(process.env.HOME ?? "/root", ".pi/agent/auth.json");
+      const authData = JSON.parse(readFileSync(authPath, "utf-8"));
+      creds = authData.cocraft;
+    } catch {
+      // Ignore
     }
-  } catch {
-    // No existing credentials — startup with fallback models only
+  }
+
+  if (creds?.access && creds?.refresh && creds?.organizationAlias) {
+    storedCredentials = {
+      access: creds.access,
+      refresh: creds.refresh,
+      expires: creds.expires ?? 0,
+      organizationAlias: creds.organizationAlias,
+    };
+
+    reRegisterWithDiscoveredModels(creds.access, creds.organizationAlias).catch(() => {
+      // ignore — we already registered with fallback models
+    });
   }
 }
