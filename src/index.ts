@@ -329,6 +329,35 @@ async function reRegisterWithDiscoveredModels(accessToken: string, organizationA
 
     const baseUrl = storedApiBase ?? process.env.PI_COCRAFT_API_BASE ?? "";
 
+    // Register delegated auth broker for subagents
+    const globalScope = globalThis as any;
+    if (!globalScope.__piDelegatedAuthBrokerRegistry) {
+      const brokers = new Map();
+      globalScope.__piDelegatedAuthBrokerRegistry = {
+        register: (broker: any) => brokers.set(broker.id, broker),
+        unregister: (brokerId: string) => brokers.delete(brokerId),
+        list: () => [...brokers.values()],
+        get: (brokerId: string) => brokers.get(brokerId)
+      };
+    }
+
+    globalScope.__piDelegatedAuthBrokerRegistry.register({
+      id: "cocraft-auth-broker",
+      capabilities: ["delegated-auth"],
+      prepareSubagentAuth: (req: any) => {
+        if (req.providerId === "cocraft") {
+          return {
+            mode: "self-managed",
+            extensionDirs: [], // Subagent reads settings.json so it gets the extension naturally
+            env: {
+              PI_COCRAFT_API_BASE: baseUrl
+            }
+          };
+        }
+        return { mode: "none" };
+      }
+    });
+
     piRef.registerProvider("cocraft", {
       name: "Cocraft",
       baseUrl,
