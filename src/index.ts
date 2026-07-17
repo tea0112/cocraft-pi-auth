@@ -9,8 +9,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Api, Model, OAuthLoginCallbacks, OAuthCredentials } from "@earendil-works/pi-ai";
 import { refreshToken, fetchOpenAIModels, fetchModelConfig, extractModelFromConfig, buildChatUrl } from "./api.js";
 import { createCocraftFetch } from "./fetch-agent.js";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const DEBUG = process.env.PI_COCRAFT_DEBUG === "1";
 function dbg(...args: unknown[]): void {
@@ -348,7 +352,7 @@ async function reRegisterWithDiscoveredModels(accessToken: string, organizationA
         if (req.providerId === "cocraft") {
           return {
             mode: "self-managed",
-            extensionDirs: [], // Subagent reads settings.json so it gets the extension naturally
+            extensionDirs: [join(__dirname, "..")], // Explicitly load this extension in subagent!
             env: {
               PI_COCRAFT_API_BASE: baseUrl,
               PI_API_KEY_COCRAFT: storedCredentials?.access || "dummy_token_to_bypass_check",
@@ -532,6 +536,8 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 
   // On startup, check for existing credentials and fetch models if found
   let creds: any = null;
+  const authPath = join(process.env.HOME ?? "/root", ".pi/agent/auth.json");
+
   if (process.env.PI_COCRAFT_ACCESS && process.env.PI_COCRAFT_REFRESH) {
     creds = {
       access: process.env.PI_COCRAFT_ACCESS,
@@ -539,9 +545,24 @@ export default async function (pi: ExtensionAPI): Promise<void> {
       organizationAlias: process.env.PI_COCRAFT_ORG,
       expires: parseInt(process.env.PI_COCRAFT_EXPIRES || "0", 10),
     };
+    // We are inside a subagent! Write the auth.json file right now so Pi sees it properly.
+    try {
+      const authData = {
+        cocraft: {
+          type: "oauth",
+          access: creds.access,
+          refresh: creds.refresh,
+          organizationAlias: creds.organizationAlias,
+          expires: creds.expires,
+        }
+      };
+      mkdirSync(join(process.env.HOME ?? "/root", ".pi/agent"), { recursive: true });
+      writeFileSync(authPath, JSON.stringify(authData, null, 2));
+    } catch {
+      // Ignore
+    }
   } else {
     try {
-      const authPath = join(process.env.HOME ?? "/root", ".pi/agent/auth.json");
       const authData = JSON.parse(readFileSync(authPath, "utf-8"));
       creds = authData.cocraft;
     } catch {
