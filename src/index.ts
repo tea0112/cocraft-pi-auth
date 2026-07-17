@@ -483,6 +483,32 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   piRef = pi;
   storedApiBase = apiBase;
 
+  // Pre-load saved models from models.json so subagents don't fail before async discovery
+  let savedModels: any[] = [
+    {
+      id: "minimax-m2.7",
+      name: "MiniMax M2.7",
+      input: ["text"] as ("text" | "image")[],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      ...modelDefaults(),
+    },
+  ];
+
+  try {
+    const modelsPath = join(process.env.HOME ?? "/root", ".pi/agent/models.json");
+    const modelsData = JSON.parse(readFileSync(modelsPath, "utf-8"));
+    if (modelsData.providers?.cocraft?.models?.length > 0) {
+      savedModels = modelsData.providers.cocraft.models.map((m: any) => ({
+        ...m,
+        name: m.name || m.id,
+        cost: m.cost || { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        ...modelDefaults(),
+      }));
+    }
+  } catch {
+    // Ignore and use fallback
+  }
+
   pi.registerProvider("cocraft", {
     name: "Cocraft",
     baseUrl: apiBase,
@@ -494,15 +520,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
       getApiKey,
       modifyModels,
     },
-    models: [
-      {
-        id: "minimax-m2.7",
-        name: "MiniMax M2.7",
-        input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        ...modelDefaults(),
-      },
-    ],
+    models: savedModels,
     // @ts-expect-error — fetch is a valid runtime option not yet in ProviderConfig type
     fetch: customFetch,
   });
