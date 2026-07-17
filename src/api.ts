@@ -116,6 +116,32 @@ export async function fetchModelConfig(accessToken: string, alias: string): Prom
   return json.result;
 }
 
+export interface OpenAIModel {
+  id: string;
+  object: string;
+  created: number;
+  owned_by: string;
+}
+
+export async function fetchOpenAIModels(accessToken: string, alias: string): Promise<OpenAIModel[]> {
+  const base = getBaseUrl();
+  const url = `${base}/${alias}/api/v1/ai/models`;
+
+  const res = await cocraftFetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`fetchOpenAIModels failed: ${res.status} ${res.statusText}`);
+  }
+
+  const json = await res.json() as { data: OpenAIModel[] };
+  return json.data || [];
+}
+
 /**
  * Extract the model identifier from a ModelConfig's value field.
  * The value is expected to contain a line of the form "model: <model-id>".

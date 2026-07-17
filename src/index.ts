@@ -7,7 +7,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Api, Model, OAuthLoginCallbacks, OAuthCredentials } from "@earendil-works/pi-ai";
-import { refreshToken, fetchModelConfig, extractModelFromConfig, buildChatUrl } from "./api.js";
+import { refreshToken, fetchOpenAIModels, fetchModelConfig, extractModelFromConfig, buildChatUrl } from "./api.js";
 import { createCocraftFetch } from "./fetch-agent.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -274,29 +274,58 @@ async function reRegisterWithDiscoveredModels(accessToken: string, organizationA
   if (!piRef) return;
 
   try {
-    const config = await fetchModelConfig(accessToken, organizationAlias);
-
-    // Parse model names from YAML config value
-    const modelNames: string[] = [];
-    for (const match of config.value.matchAll(/^name:\s*(\S+)/gm)) {
-      modelNames.push(match[1]);
-    }
-
-    if (modelNames.length === 0) {
-      return;
-    }
-
-    // Build Model objects from discovered names
+    const discoveredModels = [];
     const { contextWindow, maxTokens, reasoning } = modelDefaults();
-    const discoveredModels = modelNames.map((name) => ({
-      id: name,
-      name: name,
-      input: ["text"] as ("text" | "image")[],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow,
-      maxTokens,
-      reasoning,
-    }));
+    
+    try {
+      // Fetch models from standard OpenAI compatible endpoint
+      const openaiModels = await fetchOpenAIModels(accessToken, organizationAlias);
+      for (const m of openaiModels) {
+        discoveredModels.push({
+          id: m.id,
+          name: m.id,
+          input: ["text"] as ("text" | "image")[],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow,
+          maxTokens,
+          reasoning,
+        });
+      }
+    } catch (e) {
+      // Fallback to the old YAML config parsing if the /models endpoint fails
+      const config = await fetchModelConfig(accessToken, organizationAlias);
+      const ids = [...config.value.matchAll(/^\s*model:\s*(\S+)/gm)].map(m => m[1]);
+      const names = [...config.value.matchAll(/^\s*name:\s*(.+)$/gm)].map(m => m[1].trim());
+
+      for (let i = 0; i < ids.length; i++) {
+        discoveredModels.push({
+          id: ids[i],
+          name: names[i] || ids[i],
+          input: ["text"] as ("text" | "image")[],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow,
+          maxTokens,
+          reasoning,
+        });
+      }
+
+      if (discoveredModels.length === 0) {
+        try {
+          const singleId = extractModelFromConfig(config);
+          discoveredModels.push({
+            id: singleId,
+            name: singleId,
+            input: ["text"] as ("text" | "image")[],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow,
+            maxTokens,
+            reasoning,
+          });
+        } catch {
+          return;
+        }
+      }
+    }
 
     const baseUrl = storedApiBase ?? process.env.PI_COCRAFT_API_BASE ?? "";
 
