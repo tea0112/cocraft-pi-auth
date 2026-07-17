@@ -136,8 +136,41 @@ function persistCredentials(next: StoredCredentials): void {
     writeFileSync(authPath, JSON.stringify(authData, null, 2));
   } catch {
     // Auth file may not exist yet on first login — persistCredentials is
-    // called for 401-refreshed tokens which should already have been stored
     // by pi's login flow, so failures here are non-fatal.
+  }
+}
+
+/**
+ * Persist the updated cocraft models to pi's models.json.
+ */
+function persistModels(baseUrl: string, discoveredModels: any[]): void {
+  const modelsPath = join(process.env.HOME ?? "/root", ".pi/agent/models.json");
+  try {
+    let modelsData: any = { providers: {} };
+    try {
+      modelsData = JSON.parse(readFileSync(modelsPath, "utf-8"));
+    } catch {
+      // Ignore if file doesn't exist
+    }
+    if (!modelsData.providers) modelsData.providers = {};
+    
+    modelsData.providers.cocraft = {
+      ...modelsData.providers.cocraft,
+      baseUrl,
+      api: "openai-completions",
+      models: discoveredModels.map(m => ({
+        id: m.id,
+        contextWindow: m.contextWindow,
+        maxTokens: m.maxTokens,
+        reasoning: m.reasoning,
+        input: m.input
+      })),
+      reasoning: discoveredModels.some(m => m.reasoning)
+    };
+    
+    writeFileSync(modelsPath, JSON.stringify(modelsData, null, 2));
+  } catch {
+    // Ignore errors
   }
 }
 
@@ -282,6 +315,8 @@ async function reRegisterWithDiscoveredModels(accessToken: string, organizationA
       // @ts-expect-error — fetch is a valid runtime option not yet in ProviderConfig type
       fetch: customFetch,
     });
+    
+    persistModels(baseUrl, discoveredModels);
   } catch {
     // Non-fatal: login succeeded, model discovery failed — keep hardcoded models
   }
